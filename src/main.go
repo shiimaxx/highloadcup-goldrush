@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/sync/errgroup"
 	"log"
 	"net/http"
 	"os"
@@ -309,15 +310,25 @@ func Game(client *Client) error {
 				depth += 1
 
 				if treasures != nil {
+					g := new(errgroup.Group)
 					for _, treasure := range treasures.Treasures {
-						res, err := client.PostCash(treasure)
-						if err != nil {
-							ErrChan <- err
-						}
+						treasure := treasure
+						g.Go(func() error {
+							res, err := client.PostCash(treasure)
+							if err != nil {
+								return err
+							}
 
-						if res != nil {
-							left -= 1
-						}
+							if res != nil {
+								// TODO: race condition
+								left -= 1
+							}
+							return nil
+						})
+					}
+
+					if err := g.Wait(); err != nil {
+						ErrChan <- err
 					}
 				}
 			}
