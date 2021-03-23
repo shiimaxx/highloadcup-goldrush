@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 TAG="highloadcup-goldrush"
 
 cd src
