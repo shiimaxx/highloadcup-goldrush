@@ -256,24 +256,31 @@ func (c *Client) PostExplore(area *Area) (*Explore, error) {
 	}, nil
 }
 
-func (c *Client) UpdateLicense() error {
-	var coins []int
-
-	license, err := c.PostLicense(coins)
-	if err != nil {
-		return err
-	}
-
-	c.License = license
+func (c *Client) UpdateLicense(ch chan *License) error {
+	c.License = <- ch
 
 	return nil
 }
 
 func Game(client *Client) error {
 	ExploreChan := make(chan *Explore, 100)
+	LicenseChan := make(chan *License, 100)
 	ErrChan := make(chan error)
 
-	go func() error {
+	go func() {
+		for {
+			var coins []int
+
+			license, err := client.PostLicense(coins)
+			if err != nil {
+				ErrChan <- err
+			}
+
+			LicenseChan <- license
+		}
+	}()
+
+	go func() {
 		for {
 			result := <-ExploreChan
 
@@ -282,8 +289,8 @@ func Game(client *Client) error {
 
 			for depth <= 10 && left > 0 {
 				for client.License == nil || client.License.DigUsed >= client.License.DigAllowed {
-					if err := client.UpdateLicense(); err != nil {
-						return err
+					if err := client.UpdateLicense(LicenseChan); err != nil {
+						ErrChan <- err
 					}
 				}
 
@@ -295,7 +302,7 @@ func Game(client *Client) error {
 				}
 				treasures, err := client.PostDig(dig)
 				if err != nil {
-					return err
+					ErrChan <- err
 				}
 
 				client.License.DigUsed += 1
@@ -305,7 +312,7 @@ func Game(client *Client) error {
 					for _, treasure := range treasures.Treasures {
 						res, err := client.PostCash(treasure)
 						if err != nil {
-							return err
+							ErrChan <- err
 						}
 
 						if res != nil {
@@ -317,12 +324,12 @@ func Game(client *Client) error {
 		}
 	}()
 
-	select {
-	case err := <- ErrChan:
-		return err
-	default:
-		for x := 0; x < 3500; x++ {
-			for y := 0; y < 3500; y++ {
+	for x := 0; x < 3500; x++ {
+		for y := 0; y < 3500; y++ {
+			select {
+			case err := <- ErrChan:
+				return err
+			default:
 				area := NewArea(x, y)
 				result, err := client.PostExplore(area)
 				if err != nil {
