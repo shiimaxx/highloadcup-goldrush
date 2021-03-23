@@ -270,21 +270,16 @@ func (c *Client) UpdateLicense() error {
 }
 
 func Game(client *Client) error {
-	for x := 0; x < 3500; x++ {
-		for y := 0; y < 3500; y++ {
-			area := NewArea(x, y)
-			result, err := client.PostExplore(area)
-			if err != nil {
-				return err
-			}
+	ExploreChan := make(chan *Explore, 100)
+	ErrChan := make(chan error)
 
-			if result == nil || result.Amount < 1 {
-				log.Printf("debug: skip: %+v\n", result)
-				continue
-			}
+	go func() error {
+		for {
+			result := <-ExploreChan
 
 			depth := 1
 			left := result.Amount
+
 			for depth <= 10 && left > 0 {
 				for client.License == nil || client.License.DigUsed >= client.License.DigAllowed {
 					if err := client.UpdateLicense(); err != nil {
@@ -294,8 +289,8 @@ func Game(client *Client) error {
 
 				dig := &Dig{
 					LicenseID: client.License.ID,
-					PosX:      x,
-					PosY:      y,
+					PosX:      result.Area.PosX,
+					PosY:      result.Area.PosY,
 					Depth:     depth,
 				}
 				treasures, err := client.PostDig(dig)
@@ -318,6 +313,27 @@ func Game(client *Client) error {
 						}
 					}
 				}
+			}
+		}
+	}()
+
+	select {
+	case err := <- ErrChan:
+		return err
+	default:
+		for x := 0; x < 3500; x++ {
+			for y := 0; y < 3500; y++ {
+				area := NewArea(x, y)
+				result, err := client.PostExplore(area)
+				if err != nil {
+					return err
+				}
+
+				if result == nil || result.Amount < 1 {
+					log.Printf("debug: skip: %+v\n", result)
+					continue
+				}
+				ExploreChan <- result
 			}
 		}
 	}
