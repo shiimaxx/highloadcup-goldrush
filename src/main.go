@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sync"
 )
 
 type ErrorRes struct {
@@ -310,7 +311,10 @@ func Game(client *Client) error {
 				depth += 1
 
 				if treasures != nil {
+					var mu sync.Mutex
 					g := new(errgroup.Group)
+
+
 					for _, treasure := range treasures.Treasures {
 						treasure := treasure
 						g.Go(func() error {
@@ -320,8 +324,9 @@ func Game(client *Client) error {
 							}
 
 							if res != nil {
-								// TODO: race condition
+								mu.Lock()
 								left -= 1
+								mu.Unlock()
 							}
 							return nil
 						})
