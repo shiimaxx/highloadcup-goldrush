@@ -314,11 +314,12 @@ func Game(client *Client) error {
 				ErrChan <- err
 			}
 
-			log.Printf("debug: wallet: +%v\n", *wallet)
+			log.Printf("debug: wallet: %+v\n", *wallet)
 
 			var coins []int
 			if wallet.Balance > 100 {
 				coins = wallet.Wallet[:10]
+				log.Printf("debug: coins: %+v\n", coins)
 			}
 
 			license, err := client.PostLicense(coins)
