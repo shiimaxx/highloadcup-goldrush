@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/sync/errgroup"
 	"log"
 	"net/http"
 	"os"
 	"sync"
+
+	"golang.org/x/sync/errgroup"
 )
 
 type ErrorRes struct {
@@ -17,8 +18,8 @@ type ErrorRes struct {
 }
 
 type BalanceRes struct {
-	Balance int `json:"balance"`
-	Wallet  int `json:"wallet"`
+	Balance int   `json:"balance"`
+	Wallet  []int `json:"wallet"`
 }
 
 type LicenseListRes LicenseList
@@ -97,6 +98,11 @@ type Explore struct {
 	Amount   int
 }
 
+type Wallet struct {
+	Balance int
+	Wallet  []int
+}
+
 type Client struct {
 	BaseURL string
 	Client  *http.Client
@@ -128,7 +134,7 @@ func (c *Client) PostLicense(coin []int) (*License, error) {
 
 	if resp.StatusCode != 200 {
 		log.Println("debug: status code is ", resp.StatusCode)
-		return nil, nil 
+		return nil, nil
 	}
 
 	licenseRes := &LicenseRes{}
@@ -168,7 +174,7 @@ func (c *Client) PostDig(dig *Dig) (*Treasure, error) {
 
 	if resp.StatusCode != 200 {
 		log.Println("debug: status code is ", resp.StatusCode)
-		return nil, nil 
+		return nil, nil
 	}
 
 	digRes := &DigRes{}
@@ -207,7 +213,7 @@ func (c *Client) PostCash(treasure string) (*CashRes, error) {
 
 	if resp.StatusCode != 200 {
 		log.Println("debug: status code is ", resp.StatusCode)
-		return nil, nil 
+		return nil, nil
 	}
 
 	cashRes := &CashRes{}
@@ -243,7 +249,7 @@ func (c *Client) PostExplore(area *Area) (*Explore, error) {
 
 	if resp.StatusCode != 200 {
 		log.Println("debug: status code is ", resp.StatusCode)
-		return nil, nil 
+		return nil, nil
 	}
 
 	exploreRes := &ExploreRes{}
@@ -258,8 +264,40 @@ func (c *Client) PostExplore(area *Area) (*Explore, error) {
 	}, nil
 }
 
+func (c *Client) GetBalance() (*Wallet, error) {
+	log.Println("explore")
+
+	url := fmt.Sprintf("%s/balance", c.BaseURL)
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		log.Println("debug: status code is ", resp.StatusCode)
+		return nil, nil
+	}
+
+	balanceRes := &BalanceRes{}
+	if err := json.NewDecoder(resp.Body).Decode(balanceRes); err != nil {
+		return nil, err
+	}
+
+	return &Wallet{
+		Balance: balanceRes.Balance,
+		Wallet:  balanceRes.Wallet,
+	}, nil
+}
+
 func (c *Client) UpdateLicense(ch chan *License) error {
-	c.License = <- ch
+	c.License = <-ch
 
 	return nil
 }
@@ -271,7 +309,17 @@ func Game(client *Client) error {
 
 	go func() {
 		for {
+			wallet, err := client.GetBalance()
+			if err != nil {
+				ErrChan <- err
+			}
+
+			log.Printf("debug: wallet: +%v\n", *wallet)
+
 			var coins []int
+			if wallet.Balance > 100 {
+				coins = wallet.Wallet[:10]
+			}
 
 			license, err := client.PostLicense(coins)
 			if err != nil {
@@ -314,9 +362,9 @@ func Game(client *Client) error {
 					var mu sync.Mutex
 					g := new(errgroup.Group)
 
-
 					for _, treasure := range treasures.Treasures {
 						treasure := treasure
+						log.Printf("debug: treasure: %v\n", treasure)
 						g.Go(func() error {
 							res, err := client.PostCash(treasure)
 							if err != nil {
@@ -326,6 +374,7 @@ func Game(client *Client) error {
 							if res != nil {
 								mu.Lock()
 								left -= 1
+								log.Printf("debug: CashRes: %+v\n", *res)
 								mu.Unlock()
 							}
 							return nil
@@ -343,7 +392,7 @@ func Game(client *Client) error {
 	for x := 0; x < 3500; x++ {
 		for y := 0; y < 3500; y++ {
 			select {
-			case err := <- ErrChan:
+			case err := <-ErrChan:
 				return err
 			default:
 				area := NewArea(x, y)
@@ -353,7 +402,7 @@ func Game(client *Client) error {
 				}
 
 				if result == nil || result.Amount < 1 {
-					log.Printf("debug: skip: %+v\n", result)
+					// log.Printf("debug: skip: %+v\n", result)
 					continue
 				}
 				ExploreChan <- result
